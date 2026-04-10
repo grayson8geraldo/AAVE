@@ -1,0 +1,24 @@
+//@version=5
+strategy("StochRSI Classic [AAVE]", overlay=true, default_qty_type=strategy.percent_of_equity, default_qty_value=100, commission_type=strategy.commission.percent, commission_value=0.1, initial_capital=200)
+
+rsiLen=input.int(14,"RSI"), stochLen=input.int(14,"Stoch"), kS=input.int(3,"K"), dS=input.int(3,"D")
+emaLen=input.int(50,"Trend EMA"), sl=input.float(5.0,"SL%")/100, tp=input.float(12.0,"TP%")/100
+
+r = ta.rsi(close, rsiLen)
+k = ta.sma(ta.stoch(r,r,r,stochLen), kS)
+d = ta.sma(k, dS)
+e = ta.ema(close, emaLen)
+
+long  = ta.crossover(k, d) and k < 25 and close > e
+short = ta.crossunder(k, d) and k > 75 and close < e
+
+if long
+    strategy.entry("L", strategy.long)
+    strategy.exit("LX","L", stop=close*(1-sl), limit=close*(1+tp))
+if short
+    strategy.entry("S", strategy.short)
+    strategy.exit("SX","S", stop=close*(1+sl), limit=close*(1-tp))
+
+plot(e, "EMA50", color.orange, 2)
+plotshape(long, "Buy", shape.triangleup, location.belowbar, color.green, size=size.small)
+plotshape(short, "Sell", shape.triangledown, location.abovebar, color.red, size=size.small)

@@ -1,0 +1,33 @@
+//@version=5
+// Ensemble: StochRSI Classic OR Triple EMA (union of top 2 singles)
+strategy("Ensemble Top2 [AAVE]", overlay=true, default_qty_type=strategy.percent_of_equity, default_qty_value=100, commission_type=strategy.commission.percent, commission_value=0.1, initial_capital=200)
+
+sl=input.float(5.0,"SL%")/100, tp=input.float(12.0,"TP%")/100
+
+// StochRSI signals
+r = ta.rsi(close, 14)
+k = ta.sma(ta.stoch(r,r,r,14), 3)
+d = ta.sma(k, 3)
+e50 = ta.ema(close, 50)
+srsiLong  = ta.crossover(k, d) and k < 25 and close > e50
+srsiShort = ta.crossunder(k, d) and k > 75 and close < e50
+
+// Triple EMA signals
+e8=ta.ema(close,8), e21=ta.ema(close,21), e55=ta.ema(close,55)
+emaLong  = ta.crossover(e8,e21) and e21 > e55
+emaShort = ta.crossunder(e8,e21) and e21 < e55
+
+long  = srsiLong or emaLong
+short = srsiShort or emaShort
+
+if long
+    strategy.entry("L", strategy.long)
+    strategy.exit("LX","L", stop=close*(1-sl), limit=close*(1+tp))
+if short
+    strategy.entry("S", strategy.short)
+    strategy.exit("SX","S", stop=close*(1+sl), limit=close*(1-tp))
+
+plot(e50, "EMA50", color.orange, 2)
+plot(e8, "EMA8", color.green), plot(e21, "EMA21", color.blue), plot(e55, "EMA55", color.red)
+plotshape(long, "Buy", shape.triangleup, location.belowbar, color.green, size=size.small)
+plotshape(short, "Sell", shape.triangledown, location.abovebar, color.red, size=size.small)

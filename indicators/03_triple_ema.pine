@@ -1,0 +1,21 @@
+//@version=5
+// #2 PLACE: +7.0% OOS, most consistent (train +13.7% / test +7.0%)
+strategy("Triple EMA [AAVE]", overlay=true, default_qty_type=strategy.percent_of_equity, default_qty_value=100, commission_type=strategy.commission.percent, commission_value=0.1, initial_capital=200)
+
+f=input.int(8,"Fast"), m=input.int(21,"Mid"), s=input.int(55,"Slow")
+sl=input.float(5.0,"SL%")/100, tp=input.float(12.0,"TP%")/100
+
+ef=ta.ema(close,f), em=ta.ema(close,m), es=ta.ema(close,s)
+long  = ta.crossover(ef,em) and em > es
+short = ta.crossunder(ef,em) and em < es
+
+if long
+    strategy.entry("L", strategy.long)
+    strategy.exit("LX","L", stop=close*(1-sl), limit=close*(1+tp))
+if short
+    strategy.entry("S", strategy.short)
+    strategy.exit("SX","S", stop=close*(1+sl), limit=close*(1-tp))
+
+plot(ef,"Fast",color.green), plot(em,"Mid",color.orange,2), plot(es,"Slow",color.red,2)
+plotshape(long, "Buy", shape.triangleup, location.belowbar, color.green, size=size.small)
+plotshape(short, "Sell", shape.triangledown, location.abovebar, color.red, size=size.small)

@@ -1,12 +1,12 @@
 //@version=5
-strategy("Supertrend [AAVE]", overlay=true, default_qty_type=strategy.percent_of_equity, default_qty_value=100, commission_type=strategy.commission.percent, commission_value=0.1, initial_capital=200)
+strategy("ADX + DI [AAVE]", overlay=true, default_qty_type=strategy.percent_of_equity, default_qty_value=100, commission_type=strategy.commission.percent, commission_value=0.1, initial_capital=200)
 
-atrLen=input.int(10,"ATR"), factor=input.float(3.0,"Factor")
+adxLen=input.int(14,"ADX/DI Length"), thresh=input.int(25,"ADX Threshold")
 sl=input.float(5.0,"SL%")/100, tp=input.float(12.0,"TP%")/100
 
-[st, dir] = ta.supertrend(factor, atrLen)
-long  = dir < 0 and dir[1] > 0
-short = dir > 0 and dir[1] < 0
+[diP, diM, adxVal] = ta.dmi(adxLen, adxLen)
+long  = ta.crossover(diP, diM) and adxVal > thresh
+short = ta.crossover(diM, diP) and adxVal > thresh
 
 if long
     strategy.entry("L", strategy.long)
@@ -15,6 +15,5 @@ if short
     strategy.entry("S", strategy.short)
     strategy.exit("SX","S", stop=close*(1+sl), limit=close*(1-tp))
 
-plot(st, "ST", color=dir<0?color.green:color.red, linewidth=2)
 plotshape(long, "Buy", shape.triangleup, location.belowbar, color.green, size=size.small)
 plotshape(short, "Sell", shape.triangledown, location.abovebar, color.red, size=size.small)

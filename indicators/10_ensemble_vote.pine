@@ -1,0 +1,47 @@
+//@version=5
+// Ensemble: Majority vote of 5 indicators (>= 3 agree = signal)
+strategy("Ensemble Vote [AAVE]", overlay=true, default_qty_type=strategy.percent_of_equity, default_qty_value=100, commission_type=strategy.commission.percent, commission_value=0.1, initial_capital=200)
+
+sl=input.float(5.0,"SL%")/100, tp=input.float(12.0,"TP%")/100
+
+// 1. StochRSI state
+r = ta.rsi(close, 14)
+k = ta.sma(ta.stoch(r,r,r,14), 3)
+d = ta.sma(k, 3)
+e50 = ta.ema(close, 50)
+srsi_bull = k > d and k < 50 and close > e50
+
+// 2. StochRSI Wide state
+e30 = ta.ema(close, 30)
+srsiw_bull = k > d and k < 60 and close > e30
+
+// 3. Triple EMA state
+e8=ta.ema(close,8), e21=ta.ema(close,21), e55=ta.ema(close,55)
+ema_bull = e8 > e21 and e21 > e55
+
+// 4. RSI+EMA state
+r14 = ta.rsi(close, 14)
+e20 = ta.ema(close, 20)
+rsiema_bull = r14 > 50 and close > e20
+
+// 5. MACD state
+[ml, sl2, hist] = ta.macd(close, 12, 26, 9)
+macd_bull = hist > 0
+
+// Count
+bulls = (srsi_bull ? 1 : 0) + (srsiw_bull ? 1 : 0) + (ema_bull ? 1 : 0) + (rsiema_bull ? 1 : 0) + (macd_bull ? 1 : 0)
+bears = 5 - bulls
+
+long  = bulls >= 3 and bulls[1] < 3
+short = bears >= 3 and bears[1] < 3
+
+if long
+    strategy.entry("L", strategy.long)
+    strategy.exit("LX","L", stop=close*(1-sl), limit=close*(1+tp))
+if short
+    strategy.entry("S", strategy.short)
+    strategy.exit("SX","S", stop=close*(1+sl), limit=close*(1-tp))
+
+plotshape(long, "Buy", shape.triangleup, location.belowbar, color.green, size=size.small)
+plotshape(short, "Sell", shape.triangledown, location.abovebar, color.red, size=size.small)
+bgcolor(bulls>=3 ? color.new(color.green,92) : color.new(color.red,92))

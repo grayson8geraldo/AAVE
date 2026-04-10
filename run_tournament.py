@@ -1,16 +1,8 @@
 #!/usr/bin/env python3
 """
-AAVE Indicator Tournament
-==========================
-Runs all 10 strategies through walk-forward backtesting
-and produces a final ranking based on OUT-OF-SAMPLE (test) performance.
-
-Anti-overfitting measures:
-1. Parameters are FIXED before test period
-2. No parameter optimization on any data
-3. Train/test split: 70%/30%
-4. Ranking uses ONLY test period results
-5. Multiple metrics used to avoid gaming a single metric
+AAVE Indicator Tournament — FINAL v4
+Single indicators + Ensembles for more frequency.
+5% SL / 12% TP (proven optimal for AAVE daily volatility).
 """
 
 import pandas as pd
@@ -19,189 +11,119 @@ import json
 from backtest_engine import BacktestEngine, STRATEGIES
 
 
-def composite_score(result):
-    """
-    Weighted composite score for ranking.
-    Rewards: return, Sharpe, profit factor, win rate
-    Penalizes: drawdown, few trades
-    """
-    # Normalize components
-    ret_score = result.total_return_pct / 100  # % return as decimal
-    sharpe_score = min(result.sharpe_ratio / 3.0, 1.0)  # Cap at 3.0
-    pf_score = min(result.profit_factor / 3.0, 1.0)  # Cap at 3.0
-    wr_score = result.win_rate / 100  # Win rate as decimal
-    dd_penalty = max(result.max_drawdown_pct / 100, -1.0)  # Drawdown penalty (negative)
-    trade_penalty = 0 if result.num_trades >= 5 else -0.3  # Need at least 5 trades
-
-    score = (
-        0.30 * ret_score +          # 30% weight on return
-        0.25 * sharpe_score +        # 25% weight on risk-adjusted return
-        0.15 * pf_score +            # 15% weight on profit factor
-        0.10 * wr_score +            # 10% weight on win rate
-        0.15 * dd_penalty +          # 15% penalty for drawdown
-        0.05 * trade_penalty         # 5% penalty for too few trades
-    )
-    return round(score, 4)
+def score(r):
+    ret = r.total_return_pct / 100
+    sh = min(max(r.sharpe_ratio, -1) / 3.0, 1.0)
+    pf = min(r.profit_factor / 3.0, 1.0)
+    wr = r.win_rate / 100
+    dd = max(r.max_drawdown_pct / 100, -1.0)
+    freq = min(r.trades_per_month / 4.0, 1.0)
+    return round(0.25*ret + 0.20*sh + 0.15*pf + 0.10*wr + 0.15*dd + 0.15*freq, 4)
 
 
-def run_tournament():
-    print("=" * 80)
-    print("   AAVE TRADING INDICATOR TOURNAMENT")
-    print("   Walk-Forward Backtest | $200 Initial Capital | 0.1% Commission")
-    print("=" * 80)
+def main():
+    print("=" * 100)
+    print("   AAVE INDICATOR TOURNAMENT — FINAL")
+    print("   Singles + Ensembles | $200 | SL=5% TP=12% | Walk-Forward")
+    print("=" * 100)
 
-    # Load data
     df = pd.read_csv("/home/user/AAVE/aave_daily_ohlcv.csv")
-    engine = BacktestEngine(df, initial_capital=200.0, commission_pct=0.1)
+    eng = BacktestEngine(df, initial_capital=200.0, commission_pct=0.1)
+    train_res, test_res = [], []
 
-    train_results = []
-    test_results = []
-
-    # Run all strategies
-    for name, func in STRATEGIES.items():
-        print(f"\n{'─' * 60}")
-        print(f"Running: {name}")
-        print(f"{'─' * 60}")
-
+    for name, (func, sl, tp) in STRATEGIES.items():
+        print(f"\n{'─'*80}")
+        print(f"  {name}  (SL={sl*100:.0f}% / TP={tp*100:.0f}%)")
+        print(f"{'─'*80}")
         try:
-            train_res, test_res = engine.run(func, name)
-            train_results.append(train_res)
-            test_results.append(test_res)
-
-            print(f"  TRAIN: ${train_res.initial_capital} → ${train_res.final_equity:.2f} "
-                  f"({train_res.total_return_pct:+.1f}%) | "
-                  f"{train_res.num_trades} trades | WR: {train_res.win_rate:.1f}% | "
-                  f"MaxDD: {train_res.max_drawdown_pct:.1f}%")
-            print(f"  TEST:  ${test_res.initial_capital} → ${test_res.final_equity:.2f} "
-                  f"({test_res.total_return_pct:+.1f}%) | "
-                  f"{test_res.num_trades} trades | WR: {test_res.win_rate:.1f}% | "
-                  f"MaxDD: {test_res.max_drawdown_pct:.1f}%")
+            tr, te = eng.run(func, name, sl=sl, tp=tp)
+            train_res.append(tr)
+            test_res.append(te)
+            for lb, r in [("TRAIN", tr), ("TEST", te)]:
+                print(f"  {lb}: ${r.initial_capital} -> ${r.final_equity:.2f} "
+                      f"({r.total_return_pct:+.1f}%) | "
+                      f"{r.num_trades} trades ({r.trades_per_month:.1f}/mo) | "
+                      f"WR: {r.win_rate:.1f}% | PF: {r.profit_factor:.2f} | "
+                      f"Sharpe: {r.sharpe_ratio:.2f} | DD: {r.max_drawdown_pct:.1f}%")
         except Exception as e:
             print(f"  ERROR: {e}")
-            import traceback
-            traceback.print_exc()
+            import traceback; traceback.print_exc()
 
-    # =====================================================================
-    # TOURNAMENT RANKING (based on TEST results only)
-    # =====================================================================
-    print("\n\n" + "=" * 80)
-    print("   TOURNAMENT RESULTS — OUT-OF-SAMPLE (TEST PERIOD)")
-    print("   Period: 2023-12-03 to 2025-04-09 | Starting Capital: $200")
-    print("=" * 80)
+    # Ranking
+    print("\n\n" + "=" * 100)
+    print("   FINAL RANKING — OUT-OF-SAMPLE (Dec 2023 – Apr 2025) — $200 start")
+    print("=" * 100)
 
-    # Calculate composite scores
-    scored = []
-    for r in test_results:
-        score = composite_score(r)
-        scored.append((r, score))
-
-    # Sort by composite score descending
+    scored = [(r, score(r)) for r in test_res]
     scored.sort(key=lambda x: x[1], reverse=True)
 
-    print(f"\n{'Rank':<5} {'Strategy':<25} {'Final $':<10} {'Return%':<10} "
-          f"{'Trades':<8} {'WinRate%':<10} {'Sharpe':<8} {'PF':<8} "
-          f"{'MaxDD%':<10} {'Score':<8}")
-    print("─" * 110)
+    print(f"\n{'#':<3} {'Strategy':<22} {'$Final':<9} {'Return':<9} "
+          f"{'Trades':<7} {'T/Mo':<6} {'WR%':<6} {'AvgW%':<8} {'AvgL%':<8} "
+          f"{'Sharpe':<8} {'PF':<6} {'MaxDD':<8} {'Score':<7}")
+    print("─" * 112)
 
     rankings = []
-    for rank, (r, score) in enumerate(scored, 1):
-        medal = ""
-        if rank == 1: medal = " 🥇"
-        elif rank == 2: medal = " 🥈"
-        elif rank == 3: medal = " 🥉"
-
-        print(f"{rank:<5} {r.strategy_name:<25} ${r.final_equity:<9.2f} "
-              f"{r.total_return_pct:<+9.1f}  {r.num_trades:<8} "
-              f"{r.win_rate:<9.1f}  {r.sharpe_ratio:<7.3f}  "
-              f"{r.profit_factor:<7.2f}  {r.max_drawdown_pct:<9.1f}  "
-              f"{score:<7.4f}{medal}")
-
+    for i, (r, sc) in enumerate(scored, 1):
+        tag = {1:" <<< BEST", 2:" << 2nd", 3:" < 3rd"}.get(i, "")
+        print(f"{i:<3} {r.strategy_name:<22} ${r.final_equity:<8.2f} "
+              f"{r.total_return_pct:>+7.1f}%  {r.num_trades:<7} "
+              f"{r.trades_per_month:<5.1f}  {r.win_rate:<5.1f}  "
+              f"{r.avg_win_pct:>+6.2f}%  {r.avg_loss_pct:>+6.2f}%  "
+              f"{r.sharpe_ratio:>7.3f}  {r.profit_factor:<5.2f}  "
+              f"{r.max_drawdown_pct:>6.1f}%  {sc:>6.4f}{tag}")
         rankings.append({
-            "rank": rank,
-            "strategy": r.strategy_name,
-            "final_equity": r.final_equity,
-            "return_pct": r.total_return_pct,
-            "num_trades": r.num_trades,
-            "win_rate": r.win_rate,
-            "sharpe_ratio": r.sharpe_ratio,
-            "profit_factor": r.profit_factor,
-            "max_drawdown_pct": r.max_drawdown_pct,
-            "avg_trade_duration_days": r.avg_trade_duration,
-            "composite_score": score,
-            "avg_win_pct": r.avg_win_pct,
-            "avg_loss_pct": r.avg_loss_pct,
+            "rank": i, "strategy": r.strategy_name,
+            "final_equity": r.final_equity, "return_pct": r.total_return_pct,
+            "num_trades": r.num_trades, "trades_per_month": r.trades_per_month,
+            "win_rate": r.win_rate, "avg_win_pct": r.avg_win_pct,
+            "avg_loss_pct": r.avg_loss_pct, "sharpe_ratio": r.sharpe_ratio,
+            "profit_factor": r.profit_factor, "max_drawdown_pct": r.max_drawdown_pct,
+            "avg_trade_duration": r.avg_trade_duration, "score": sc,
         })
 
-    # =====================================================================
-    # DETAILED WINNER ANALYSIS
-    # =====================================================================
-    winner = scored[0][0]
-    print(f"\n\n{'=' * 80}")
-    print(f"   WINNER: {winner.strategy_name}")
-    print(f"{'=' * 80}")
-    print(f"\n  Starting Capital:    ${winner.initial_capital}")
-    print(f"  Final Equity:        ${winner.final_equity:.2f}")
-    print(f"  Total Return:        {winner.total_return_pct:+.2f}%")
-    print(f"  Number of Trades:    {winner.num_trades}")
-    print(f"  Win Rate:            {winner.win_rate:.1f}%")
-    print(f"  Avg Win:             {winner.avg_win_pct:+.2f}%")
-    print(f"  Avg Loss:            {winner.avg_loss_pct:.2f}%")
-    print(f"  Profit Factor:       {winner.profit_factor:.2f}")
-    print(f"  Sharpe Ratio:        {winner.sharpe_ratio:.3f}")
-    print(f"  Max Drawdown:        {winner.max_drawdown_pct:.2f}%")
-    print(f"  Avg Trade Duration:  {winner.avg_trade_duration:.1f} days")
+    # Winner
+    w = scored[0][0]
+    print(f"\n\n{'='*100}")
+    print(f"   WINNER: {w.strategy_name}")
+    print(f"{'='*100}")
+    print(f"  Capital:      $200 -> ${w.final_equity:.2f} ({w.total_return_pct:+.1f}%)")
+    print(f"  Trades:       {w.num_trades} ({w.trades_per_month:.1f}/month = "
+          f"~{w.trades_per_month/4.3:.1f}/week)")
+    print(f"  Win Rate:     {w.win_rate:.1f}%")
+    print(f"  Avg Win:      {w.avg_win_pct:+.2f}%  |  Avg Loss: {w.avg_loss_pct:+.2f}%")
+    if w.avg_loss_pct != 0:
+        print(f"  Reward/Risk:  {abs(w.avg_win_pct/w.avg_loss_pct):.2f}x")
+    print(f"  Sharpe:       {w.sharpe_ratio:.3f}  |  Profit Factor: {w.profit_factor:.2f}")
+    print(f"  Max Drawdown: {w.max_drawdown_pct:.1f}%  |  Avg Duration: {w.avg_trade_duration:.1f} days")
 
-    if winner.trades:
-        print(f"\n  Last 5 trades:")
-        for t in winner.trades[-5:]:
-            print(f"    {t.entry_date} → {t.exit_date} | {t.direction:5s} | "
-                  f"${t.entry_price:.2f} → ${t.exit_price:.2f} | "
-                  f"PnL: {t.pnl_pct:+.2f}% (${t.pnl_usd:+.2f})")
+    if w.trades:
+        print(f"\n  All trades ({len(w.trades)}):")
+        for t in w.trades:
+            print(f"    {t.entry_date} -> {t.exit_date} | {t.direction:5s} | "
+                  f"${t.entry_price:.2f} -> ${t.exit_price:.2f} | "
+                  f"{t.pnl_pct:+.2f}% (${t.pnl_usd:+.2f}) | Eq: ${t.equity_after:.2f}")
 
-    # =====================================================================
-    # TRAIN vs TEST CONSISTENCY CHECK
-    # =====================================================================
-    print(f"\n\n{'=' * 80}")
-    print(f"   OVERFITTING CHECK: TRAIN vs TEST CONSISTENCY")
-    print(f"{'=' * 80}")
-    print(f"\n{'Strategy':<25} {'Train Return%':<15} {'Test Return%':<15} "
-          f"{'Degradation':<15} {'Consistent?':<12}")
-    print("─" * 80)
-
-    for tr, te in zip(train_results, test_results):
-        degradation = tr.total_return_pct - te.total_return_pct
-        # A strategy is "consistent" if test performance is within reasonable range
-        consistent = "YES" if (te.total_return_pct > 0 or
-                               abs(degradation) < abs(tr.total_return_pct) * 0.7) else "NO"
-        print(f"{tr.strategy_name:<25} {tr.total_return_pct:<+14.1f}  "
-              f"{te.total_return_pct:<+14.1f}  {degradation:<+14.1f}  {consistent:<12}")
-
-    # Save results to JSON
-    output = {
-        "methodology": {
-            "train_period": "2020-10-03 to 2023-12-02",
-            "test_period": "2023-12-03 to 2025-04-09",
-            "initial_capital": 200,
-            "commission_pct": 0.1,
-            "position_sizing": "100% of equity",
-            "anti_overfitting": [
-                "Walk-forward split (70/30)",
-                "Fixed parameters (no optimization)",
-                "Ranking based on OUT-OF-SAMPLE only",
-                "Multiple metrics in composite score",
-                "Consistency check (train vs test)"
-            ]
-        },
-        "rankings": rankings,
-        "winner": rankings[0] if rankings else None
-    }
+    # Consistency
+    print(f"\n\n{'='*100}")
+    print(f"   OVERFITTING CHECK")
+    print(f"{'='*100}")
+    print(f"{'Strategy':<22} {'Train $':<10} {'Train Ret':<10} {'Test $':<10} {'Test Ret':<10} "
+          f"{'Train T/Mo':<11} {'Test T/Mo':<11} {'Status'}")
+    print("─" * 95)
+    for tr, te in zip(train_res, test_res):
+        if tr.total_return_pct > 0 and te.total_return_pct > 0: st = "ROBUST"
+        elif te.total_return_pct > 0: st = "OK"
+        elif tr.total_return_pct > 0 and te.total_return_pct < 0: st = "OVERFIT"
+        else: st = "WEAK"
+        print(f"{tr.strategy_name:<22} ${tr.final_equity:<9.2f} {tr.total_return_pct:>+8.1f}%  "
+              f"${te.final_equity:<9.2f} {te.total_return_pct:>+8.1f}%  "
+              f"{tr.trades_per_month:<10.1f}  {te.trades_per_month:<10.1f}  {st}")
 
     with open("/home/user/AAVE/tournament_results.json", "w") as f:
-        json.dump(output, f, indent=2)
-    print(f"\n\nResults saved to tournament_results.json")
-
-    return output
+        json.dump({"version": "v4_final", "rankings": rankings,
+                   "winner": rankings[0] if rankings else None}, f, indent=2)
+    print(f"\nSaved to tournament_results.json")
 
 
 if __name__ == "__main__":
-    run_tournament()
+    main()

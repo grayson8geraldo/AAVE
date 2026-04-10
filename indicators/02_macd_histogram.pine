@@ -1,0 +1,41 @@
+// This Pine Script™ is subject to the terms of the Mozilla Public License 2.0
+// © AAVE Deposit Accelerator
+
+//@version=5
+strategy("MACD Histogram Reversal", overlay=true, default_qty_type=strategy.percent_of_equity, default_qty_value=100, commission_type=strategy.commission.percent, commission_value=0.1, initial_capital=200)
+
+// === PARAMETERS ===
+fastLen   = input.int(12, "MACD Fast Length")
+slowLen   = input.int(26, "MACD Slow Length")
+sigLen    = input.int(9, "Signal Length")
+slPercent = input.float(5.0, "Stop Loss %", minval=0.5, step=0.5)
+tpPercent = input.float(12.0, "Take Profit %", minval=1.0, step=0.5)
+
+// === INDICATORS ===
+[macdLine, signalLine, histLine] = ta.macd(close, fastLen, slowLen, sigLen)
+
+// Histogram momentum: 2 consecutive rising bars after negative territory
+histRising  = histLine > histLine[1] and histLine[1] > histLine[2]
+histFalling = histLine < histLine[1] and histLine[1] < histLine[2]
+
+// === SIGNALS ===
+// Long: histogram turns positive (crosses zero from below)
+longCondition  = ta.crossover(histLine, 0)
+// Short: histogram turns negative (crosses zero from above)
+shortCondition = ta.crossunder(histLine, 0)
+
+// === EXECUTION ===
+if longCondition
+    strategy.entry("Long", strategy.long)
+    strategy.exit("Long Exit", "Long", stop=close*(1-slPercent/100), limit=close*(1+tpPercent/100))
+
+if shortCondition
+    strategy.entry("Short", strategy.short)
+    strategy.exit("Short Exit", "Short", stop=close*(1+slPercent/100), limit=close*(1-tpPercent/100))
+
+// === PLOTS ===
+plotshape(longCondition, "Buy", shape.triangleup, location.belowbar, color.green, size=size.small)
+plotshape(shortCondition, "Sell", shape.triangledown, location.abovebar, color.red, size=size.small)
+
+// MACD panel
+hline(0, "Zero", color.gray)

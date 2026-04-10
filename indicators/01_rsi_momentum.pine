@@ -1,0 +1,38 @@
+// This Pine Script™ is subject to the terms of the Mozilla Public License 2.0
+// © AAVE Deposit Accelerator
+
+//@version=5
+strategy("RSI Momentum Strategy", overlay=true, default_qty_type=strategy.percent_of_equity, default_qty_value=100, commission_type=strategy.commission.percent, commission_value=0.1, initial_capital=200)
+
+// === PARAMETERS ===
+rsiLen      = input.int(14, "RSI Length", minval=2)
+emaTrendLen = input.int(50, "Trend EMA Length", minval=10)
+rsiOversold = input.int(35, "RSI Oversold Level", minval=10, maxval=50)
+rsiOverbought = input.int(65, "RSI Overbought Level", minval=50, maxval=90)
+slPercent   = input.float(5.0, "Stop Loss %", minval=0.5, step=0.5)
+tpPercent   = input.float(10.0, "Take Profit %", minval=1.0, step=0.5)
+
+// === INDICATORS ===
+rsiVal  = ta.rsi(close, rsiLen)
+emaTrend = ta.ema(close, emaTrendLen)
+
+// === SIGNALS ===
+// Long: RSI crosses above oversold AND price above trend EMA
+longCondition = ta.crossover(rsiVal, rsiOversold) and close > emaTrend
+// Short: RSI crosses below overbought AND price below trend EMA
+shortCondition = ta.crossunder(rsiVal, rsiOverbought) and close < emaTrend
+
+// === EXECUTION ===
+if longCondition
+    strategy.entry("Long", strategy.long)
+    strategy.exit("Long Exit", "Long", stop=close*(1-slPercent/100), limit=close*(1+tpPercent/100))
+
+if shortCondition
+    strategy.entry("Short", strategy.short)
+    strategy.exit("Short Exit", "Short", stop=close*(1+slPercent/100), limit=close*(1-tpPercent/100))
+
+// === PLOTS ===
+plot(emaTrend, "Trend EMA", color=color.orange, linewidth=2)
+bgcolor(longCondition ? color.new(color.green, 90) : shortCondition ? color.new(color.red, 90) : na)
+plotshape(longCondition, "Buy", shape.triangleup, location.belowbar, color.green, size=size.small)
+plotshape(shortCondition, "Sell", shape.triangledown, location.abovebar, color.red, size=size.small)

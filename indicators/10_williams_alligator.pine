@@ -1,0 +1,65 @@
+// This Pine Script™ is subject to the terms of the Mozilla Public License 2.0
+// © AAVE Deposit Accelerator
+
+//@version=5
+strategy("Williams Alligator Strategy", overlay=true, default_qty_type=strategy.percent_of_equity, default_qty_value=100, commission_type=strategy.commission.percent, commission_value=0.1, initial_capital=200)
+
+// === PARAMETERS ===
+jawLen    = input.int(13, "Jaw Length")
+jawOffset = input.int(8, "Jaw Offset")
+teethLen  = input.int(8, "Teeth Length")
+teethOffset = input.int(5, "Teeth Offset")
+lipsLen   = input.int(5, "Lips Length")
+lipsOffset = input.int(3, "Lips Offset")
+slPercent = input.float(5.0, "Stop Loss %")
+tpPercent = input.float(12.0, "Take Profit %")
+
+// === INDICATORS ===
+// Alligator lines (SMMA = Smoothed Moving Average)
+jaw   = ta.sma(ta.sma(close, jawLen), 2)
+teeth = ta.sma(ta.sma(close, teethLen), 2)
+lips  = ta.sma(ta.sma(close, lipsLen), 2)
+
+// Displaced values for current bar
+jawDisp   = jaw[jawOffset]
+teethDisp = teeth[teethOffset]
+lipsDisp  = lips[lipsOffset]
+
+// Alligator mouth open (trending)
+mouthOpen = math.abs(lipsDisp - jawDisp) > math.abs(lipsDisp[5] - jawDisp[5])
+
+// Price above/below all lines
+priceAboveAll = close > lipsDisp and close > teethDisp and close > jawDisp
+priceBelowAll = close < lipsDisp and close < teethDisp and close < jawDisp
+
+// Alligator alignment
+bullAlignment = lipsDisp > teethDisp and teethDisp > jawDisp
+bearAlignment = lipsDisp < teethDisp and teethDisp < jawDisp
+
+// === SIGNALS ===
+// Long: bullish alignment starts + price above all lines + mouth opening
+longCondition  = bullAlignment and not bullAlignment[1] and priceAboveAll and mouthOpen
+// Short: bearish alignment starts + price below all lines + mouth opening
+shortCondition = bearAlignment and not bearAlignment[1] and priceBelowAll and mouthOpen
+
+// Exit when lines converge (sleeping alligator)
+sleeping = math.abs(lipsDisp - teethDisp) < ta.atr(14) * 0.3
+
+// === EXECUTION ===
+if longCondition
+    strategy.entry("Long", strategy.long)
+    strategy.exit("Long SL/TP", "Long", stop=close*(1-slPercent/100), limit=close*(1+tpPercent/100))
+
+if shortCondition
+    strategy.entry("Short", strategy.short)
+    strategy.exit("Short SL/TP", "Short", stop=close*(1+slPercent/100), limit=close*(1-tpPercent/100))
+
+if sleeping and strategy.position_size != 0
+    strategy.close_all("Alligator Sleeping")
+
+// === PLOTS ===
+plot(jawDisp,   "Jaw",   color.blue,  linewidth=2)
+plot(teethDisp, "Teeth", color.red,   linewidth=1)
+plot(lipsDisp,  "Lips",  color.green, linewidth=1)
+plotshape(longCondition, "Buy", shape.triangleup, location.belowbar, color.green, size=size.small)
+plotshape(shortCondition, "Sell", shape.triangledown, location.abovebar, color.red, size=size.small)

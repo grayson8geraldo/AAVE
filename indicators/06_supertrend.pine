@@ -1,0 +1,36 @@
+// This Pine Script™ is subject to the terms of the Mozilla Public License 2.0
+// © AAVE Deposit Accelerator
+
+//@version=5
+strategy("Supertrend Strategy", overlay=true, default_qty_type=strategy.percent_of_equity, default_qty_value=100, commission_type=strategy.commission.percent, commission_value=0.1, initial_capital=200)
+
+// === PARAMETERS ===
+atrLen    = input.int(10, "ATR Length", minval=1)
+factor    = input.float(3.0, "Factor", minval=0.5, step=0.1)
+slPercent = input.float(6.0, "Stop Loss %", minval=0.5, step=0.5)
+tpPercent = input.float(15.0, "Take Profit %", minval=1.0, step=0.5)
+
+// === INDICATORS ===
+[supertrend, direction] = ta.supertrend(factor, atrLen)
+
+// Direction: -1 = uptrend, 1 = downtrend
+trendUp   = direction < 0
+trendDown = direction > 0
+
+// === SIGNALS ===
+longCondition  = trendUp and not trendUp[1]   // Switch to uptrend
+shortCondition = trendDown and not trendDown[1] // Switch to downtrend
+
+// === EXECUTION ===
+if longCondition
+    strategy.entry("Long", strategy.long)
+    strategy.exit("Long Exit", "Long", stop=close*(1-slPercent/100), limit=close*(1+tpPercent/100))
+
+if shortCondition
+    strategy.entry("Short", strategy.short)
+    strategy.exit("Short Exit", "Short", stop=close*(1+slPercent/100), limit=close*(1-tpPercent/100))
+
+// === PLOTS ===
+plot(supertrend, "Supertrend", color=trendUp ? color.green : color.red, linewidth=2)
+plotshape(longCondition, "Buy", shape.triangleup, location.belowbar, color.green, size=size.small)
+plotshape(shortCondition, "Sell", shape.triangledown, location.abovebar, color.red, size=size.small)
